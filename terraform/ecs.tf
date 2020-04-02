@@ -83,19 +83,19 @@ locals {
   mhs_outbound_base_secrets = [
     {
       name = "MHS_SECRET_PARTY_KEY"
-      valueFrom = var.party_key_arn
+      valueFrom = local.party_key_arn
     },
     {
       name = "MHS_SECRET_CLIENT_CERT"
-      valueFrom = var.client_cert_arn
+      valueFrom = local.client_cert_arn
     },
     {
       name = "MHS_SECRET_CLIENT_KEY"
-      valueFrom = var.client_key_arn
+      valueFrom = local.client_key_arn
     },
     {
       name = "MHS_SECRET_CA_CERTS"
-      valueFrom = var.ca_certs_arn
+      valueFrom = local.ca_certs_arn
     }
   ]
 }
@@ -103,12 +103,29 @@ locals {
 # MHS outbound ECS task definition
 resource "aws_ecs_task_definition" "mhs_outbound_task" {
   family = "${var.environment_id}-mhs-outbound"
+  depends_on = [module.dns]
   container_definitions = jsonencode(
   [
     {
       name = "mhs-outbound"
       image = "${local.ecr_address}/mhs-outbound:${var.build_id}"
-      environment = var.mhs_outbound_http_proxy == "" ? local.mhs_outbound_base_environment_vars : concat(local.mhs_outbound_base_environment_vars, [
+      environment = var.mhs_outbound_http_proxy == "" ? concat(local.mhs_outbound_base_environment_vars,
+      [{
+        name = "DNS_SERVER_1",
+        value = module.dns.dns_ip_addresses[0]
+      },
+      {
+        name = "DNS_SERVER_2",
+        value = module.dns.dns_ip_addresses[1]
+      }]) : concat(local.mhs_outbound_base_environment_vars, [
+        {
+          name = "DNS_SERVER_1",
+          value = module.dns.dns_ip_addresses[0]
+        },
+        {
+          name = "DNS_SERVER_2",
+          value = module.dns.dns_ip_addresses[1]
+        },
         {
           name = "MHS_OUTBOUND_HTTP_PROXY"
           value = var.mhs_outbound_http_proxy
@@ -160,6 +177,7 @@ resource "aws_ecs_task_definition" "mhs_outbound_task" {
 # MHS inbound ECS task definition
 resource "aws_ecs_task_definition" "mhs_inbound_task" {
   family = "${var.environment_id}-mhs-inbound"
+  depends_on = [module.dns]
   container_definitions = jsonencode(
   [
     {
@@ -180,8 +198,21 @@ resource "aws_ecs_task_definition" "mhs_inbound_task" {
         },
         {
           name = "MHS_INBOUND_QUEUE_URL"
-          value = local.inbound_queue_host
+          value = "${local.inbound_queue_host}/${var.inbound_queue_name}"
+        },
+        {
+          name = "MHS_INBOUND_RAW_QUEUE_URL"
+          value = "${local.inbound_queue_host}/${var.inbound_raw_queue_name}"
+        },
+        {
+          name = "DNS_SERVER_1",
+          value = module.dns.dns_ip_addresses[0]
+        },
+        {
+          name = "DNS_SERVER_2",
+          value = module.dns.dns_ip_addresses[1]
         }
+
       ]
       secrets = [
         {
@@ -194,19 +225,19 @@ resource "aws_ecs_task_definition" "mhs_inbound_task" {
         },
         {
           name = "MHS_SECRET_PARTY_KEY"
-          valueFrom = var.party_key_arn
+          valueFrom = local.party_key_arn
         },
         {
           name = "MHS_SECRET_CLIENT_CERT"
-          valueFrom = var.client_cert_arn
+          valueFrom = local.client_cert_arn
         },
         {
           name = "MHS_SECRET_CLIENT_KEY"
-          valueFrom = var.client_key_arn
+          valueFrom = local.client_key_arn
         },
         {
           name = "MHS_SECRET_CA_CERTS"
-          valueFrom = var.ca_certs_arn
+          valueFrom = local.ca_certs_arn
         }
       ]
       essential = true
@@ -252,12 +283,21 @@ resource "aws_ecs_task_definition" "mhs_inbound_task" {
 # Create an ECS task definition for the MHS route service container image.
 resource "aws_ecs_task_definition" "mhs_route_task" {
   family = "${var.environment_id}-mhs-route"
+  depends_on = [module.dns]
   container_definitions = jsonencode(
   [
     {
       name = "mhs-route"
       image = "${local.ecr_address}/mhs-route:${var.build_id}"
       environment = [
+        {
+          name = "DNS_SERVER_1",
+          value = module.dns.dns_ip_addresses[0]
+        },
+        {
+          name = "DNS_SERVER_2",
+          value = module.dns.dns_ip_addresses[1]
+        },
         {
           name = "MHS_LOG_LEVEL"
           value = var.mhs_log_level
@@ -286,15 +326,15 @@ resource "aws_ecs_task_definition" "mhs_route_task" {
       secrets = [
         {
           name = "MHS_SECRET_CLIENT_CERT"
-          valueFrom = var.client_cert_arn
+          valueFrom = local.client_cert_arn
         },
         {
           name = "MHS_SECRET_CLIENT_KEY"
-          valueFrom = var.client_key_arn
+          valueFrom = local.client_key_arn
         },
         {
           name = "MHS_SECRET_CA_CERTS"
-          valueFrom = var.ca_certs_arn
+          valueFrom = local.ca_certs_arn
         }
       ]
       essential = true
@@ -348,7 +388,7 @@ resource "aws_ecs_service" "mhs_outbound_service" {
     security_groups = [
       aws_security_group.mhs_outbound_security_group.id
     ]
-    subnets = aws_subnet.mhs_subnet.*.id
+    subnets = local.subnet_ids
   }
 
   load_balancer {
@@ -366,7 +406,7 @@ resource "aws_ecs_service" "mhs_outbound_service" {
   # Preserve the autoscaled instance count when this service is updated
   lifecycle {
     ignore_changes = [
-      "desired_count"
+      desired_count
     ]
   }
 }
@@ -416,7 +456,7 @@ resource "aws_ecs_service" "mhs_inbound_service" {
     security_groups = [
       aws_security_group.mhs_inbound_security_group.id
     ]
-    subnets = aws_subnet.mhs_subnet.*.id
+    subnets = local.subnet_ids
   }
 
   load_balancer {
@@ -436,7 +476,7 @@ resource "aws_ecs_service" "mhs_inbound_service" {
   # Preserve the autoscaled instance count when this service is updated
   lifecycle {
     ignore_changes = [
-      "desired_count"
+      desired_count
     ]
   }
 }
@@ -485,7 +525,7 @@ resource "aws_ecs_service" "mhs_route_service" {
     security_groups = [
       aws_security_group.mhs_route_security_group.id
     ]
-    subnets = aws_subnet.mhs_subnet.*.id
+    subnets = local.subnet_ids
   }
 
   load_balancer {
@@ -503,7 +543,7 @@ resource "aws_ecs_service" "mhs_route_service" {
   # Preserve the autoscaled instance count when this service is updated
   lifecycle {
     ignore_changes = [
-      "desired_count"
+      desired_count
     ]
   }
 }

@@ -8,6 +8,39 @@ variable "my_ip" {
   default = "127.0.0.1"
 }
 
+variable "recipient_ods_code" {
+  description = "ODS code that was used for the MHS (CMA endpoint) registration"
+}
+
+variable "inbound_raw_queue_name" {
+  default = "raw-inbound"
+}
+
+variable "dns_hscn_forward_server_1" {}
+variable "dns_hscn_forward_server_2" {}
+variable "unbound_image_version" {}
+variable "deregistration_delay" {
+  default = 30
+}
+
+variable "nlb_deletion_protection" {}
+
+variable "use_opentest" {}
+
+variable "spine_cidr" {
+  default = "0.0.0.0/0" # FIXME: narrow down to only the services that we talk to
+}
+
+variable "use_existing_vpc" {
+  default = ""
+  description = "Rather than creating a new VPC, we re-use existing one. This is required until we get proper setup with a transit gateway."
+}
+
+variable "cidr_newbits" {
+  default = 8
+  description = "Defines the size of the subnets"
+}
+
 variable "opentest_cidr" {
   default = "192.168.128.0/24"
 }
@@ -45,6 +78,10 @@ variable "supplier_vpc_id" {
 variable "internal_root_domain" {
   type = string
   description = "Domain name to be used internally to refer to parts of the MHS (subdomains will be created off of this root domain). This domain name should not clash with any domain name on the internet. e.g. internal.somedomainyoucontrol.com"
+}
+
+variable "inbound_queue_name" {
+  default = "inbound"
 }
 
 variable "mhs_outbound_service_minimum_instance_count" {
@@ -134,26 +171,6 @@ variable "mhs_sync_async_table_read_capacity" {
 variable "mhs_sync_async_table_write_capacity" {
   type = number
   description = "Write capacity of the DynamoDB sync-async table used by the MHS application."
-}
-
-variable "party_key_arn" {
-  type = string
-  description = "ARN of the secrets manager secret of the party key associated with the MHS."
-}
-
-variable "client_cert_arn" {
-  type = string
-  description = "ARN of the secrets manager secret of the endpoint certificate."
-}
-
-variable "client_key_arn" {
-  type = string
-  description = "ARN of the secrets manager secret of the endpoint private key."
-}
-
-variable "ca_certs_arn" {
-  type = string
-  description = "ARN of the secrets manager secret of the endpoint issuing subCA certificate and root CA Certificate (in that order)."
 }
 
 variable "route_ca_certs_arn" {

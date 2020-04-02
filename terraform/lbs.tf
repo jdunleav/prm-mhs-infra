@@ -8,9 +8,10 @@
 
 # Application load balancer for MHS outbound
 resource "aws_lb" "outbound_alb" {
+  name = "${var.environment_id}-mhs-outbound-alb"
   internal = true
   load_balancer_type = "application"
-  subnets = aws_subnet.mhs_subnet.*.id
+  subnets = local.subnet_ids
   security_groups = [
     aws_security_group.alb_outbound_security_group.id
   ]
@@ -36,10 +37,12 @@ resource "aws_lb" "outbound_alb" {
 # Target group for the application load balancer for MHS outbound
 # The MHS outbound ECS service registers it's tasks here.
 resource "aws_lb_target_group" "outbound_alb_target_group" {
+  name = "${var.environment_id}-mhs-outbound"
   port = 80
   protocol = "HTTP"
   target_type = "ip"
-  vpc_id = aws_vpc.mhs_vpc.id
+  vpc_id = local.mhs_vpc_id
+  deregistration_delay = var.deregistration_delay
 
   health_check {
     path = "/healthcheck"
@@ -78,9 +81,10 @@ resource "aws_lb_listener" "outbound_alb_listener" {
 
 # Application load balancer for MHS route service
 resource "aws_lb" "route_alb" {
+  name = "${var.environment_id}-mhs-route-alb"
   internal = true
   load_balancer_type = "application"
-  subnets = aws_subnet.mhs_subnet.*.id
+  subnets = local.subnet_ids
   security_groups = [
     aws_security_group.alb_route_security_group.id
   ]
@@ -106,10 +110,12 @@ resource "aws_lb" "route_alb" {
 # Target group for the application load balancer for MHS route service
 # The MHS route ECS service registers it's tasks here.
 resource "aws_lb_target_group" "route_alb_target_group" {
+  name = "${var.environment_id}-mhs-route"
   port = 80
   protocol = "HTTP"
   target_type = "ip"
-  vpc_id = aws_vpc.mhs_vpc.id
+  vpc_id = local.mhs_vpc_id
+  deregistration_delay = var.deregistration_delay
 
   health_check {
     path = "/healthcheck"
@@ -151,10 +157,15 @@ resource "aws_lb_listener" "route_alb_listener" {
 # have to use a network load balancer here and not an application load balancer,
 # to passthrough the SSL traffic.
 resource "aws_lb" "inbound_nlb" {
+  name = "${var.environment_id}-mhs-inbound-nlb"
   internal = true
   load_balancer_type = "network"
-  subnets = aws_subnet.mhs_subnet.*.id
+  subnets = local.subnet_ids
   enable_cross_zone_load_balancing = true
+  # We turn-on deletion protection to force you to read this note before deletion:
+  # Whenever the NLB is re-deployed in HSCN network, it's ipaddresses will change and
+  # you need to submit a DNS update form manually. See ./tasks nlb_ips
+  enable_deletion_protection = var.nlb_deletion_protection
 
   access_logs {
     bucket = aws_s3_bucket.mhs_access_logs_bucket.bucket
@@ -177,10 +188,12 @@ resource "aws_lb" "inbound_nlb" {
 # Target group for the network load balancer for MHS inbound
 # The MHS inbound ECS service registers it's tasks here.
 resource "aws_lb_target_group" "inbound_nlb_target_group" {
+  name = "${var.environment_id}-mhs-inbound"
   port = 443
   protocol = "TCP"
   target_type = "ip"
-  vpc_id = aws_vpc.mhs_vpc.id
+  vpc_id = local.mhs_vpc_id
+  deregistration_delay = var.deregistration_delay
 
   health_check {
     protocol = "HTTP"

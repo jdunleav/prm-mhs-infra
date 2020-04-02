@@ -5,9 +5,9 @@ module "gocd" {
     environment = "prod"
     region = "${var.region}"
     az = data.aws_availability_zones.all.names[0]
-    vpc_id = aws_vpc.mhs_vpc.id
-    subnet_id = module.opentest.subnet_id
-    agent_resources = "mhs-opentest"
+    vpc_id = local.mhs_vpc_id
+    subnet_id = local.public_subnet_id
+    agent_resources = "${var.environment_id},mhs"
     allocate_public_ip = true
     agent_count = 1
 }
@@ -24,17 +24,20 @@ data "aws_ssm_parameter" "gocd_cidr_block" {
   name = "/NHS/deductions-${data.aws_caller_identity.current.account_id}/gocd-prod/cidr_block"
 }
 
+data "aws_ssm_parameter" "route_table_id" {
+  name = "/NHS/deductions-${data.aws_caller_identity.current.account_id}/gocd-prod/route_table_id"
+}
+
 locals {
   gocd_vpc = data.aws_ssm_parameter.gocd_vpc.value
   gocd_zone_id = data.aws_ssm_parameter.gocd_zone_id.value
   gocd_cidr_block = data.aws_ssm_parameter.gocd_cidr_block.value
-  public_subnet_route_table = module.opentest.public_route_table_id
 }
 
 # VPC peering connection with GoCD server
 resource "aws_vpc_peering_connection" "gocd_peering_connection" {
   peer_vpc_id = local.gocd_vpc
-  vpc_id = aws_vpc.mhs_vpc.id
+  vpc_id = local.mhs_vpc_id
   auto_accept = true
 
   accepter {
@@ -51,14 +54,10 @@ resource "aws_vpc_peering_connection" "gocd_peering_connection" {
   }
 }
 
-data "aws_ssm_parameter" "route_table_id" {
-  name = "/NHS/deductions-${data.aws_caller_identity.current.account_id}/gocd-prod/route_table_id"
-}
-
 # Add a route to the MHS VPC in the gocd VPC route table
 resource "aws_route" "gocd_to_mhs_route" {
   route_table_id = data.aws_ssm_parameter.route_table_id.value
-  destination_cidr_block = aws_vpc.mhs_vpc.cidr_block
+  destination_cidr_block = local.mhs_vpc_cidr_block
   vpc_peering_connection_id = aws_vpc_peering_connection.gocd_peering_connection.id
 }
 
@@ -69,14 +68,8 @@ resource "aws_route" "mhs_to_gocd_route" {
   vpc_peering_connection_id = aws_vpc_peering_connection.gocd_peering_connection.id
 }
 
-# Allow DNS resolution of the domain names defined in mhs in the gocd VPC (not really necessary)
-resource "aws_route53_zone_association" "gocd_hosted_zone_mhs_vpc_association" {
-  zone_id = aws_route53_zone.mhs_hosted_zone.zone_id
-  vpc_id = local.gocd_vpc
-}
-
 # Allow DNS resolution of the domain names defined in gocd VPC in mhs vpc
 resource "aws_route53_zone_association" "mhs_hosted_zone_gocd_vpc_association" {
   zone_id = local.gocd_zone_id
-  vpc_id = aws_vpc.mhs_vpc.id
+  vpc_id = local.mhs_vpc_id
 }

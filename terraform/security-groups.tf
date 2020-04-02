@@ -15,7 +15,7 @@
 resource "aws_security_group" "mhs_outbound_security_group" {
   name = "MHS Outbound Security Group"
   description = "The security group used to control traffic for the MHS Outbound component."
-  vpc_id = aws_vpc.mhs_vpc.id
+  vpc_id = local.mhs_vpc_id
 
   tags = {
     Name = "${var.environment_id}-mhs-outbound-sg"
@@ -81,6 +81,16 @@ resource "aws_security_group_rule" "mhs_outbound_security_group_cloudwatch_egres
   description = "HTTPS connections to Cloudwatch endpoint"
 }
 
+resource "aws_security_group_rule" "mhs_outbound_security_group_dns_udp_egress_rule" {
+  security_group_id = aws_security_group.mhs_outbound_security_group.id
+  type = "egress"
+  from_port = 53
+  to_port = 53
+  protocol = "udp"
+  source_security_group_id = module.dns.security_group_id
+  description = "DNS queries to local DNS servers"
+}
+
 ###################
 # MHS route security group
 ###################
@@ -89,7 +99,7 @@ resource "aws_security_group_rule" "mhs_outbound_security_group_cloudwatch_egres
 resource "aws_security_group" "mhs_route_security_group" {
   name = "MHS Route Security Group"
   description = "The security group used to control traffic for the MHS Routing component."
-  vpc_id = aws_vpc.mhs_vpc.id
+  vpc_id = local.mhs_vpc_id
 
   tags = {
     Name = "${var.environment_id}-mhs-route-sg"
@@ -155,6 +165,16 @@ resource "aws_security_group_rule" "mhs_route_security_group_cloudwatch_egress_r
   description = "HTTPS connections to Cloudwatch endpoint"
 }
 
+resource "aws_security_group_rule" "mhs_route_security_group_dns_udp_egress_rule" {
+  security_group_id = aws_security_group.mhs_route_security_group.id
+  type = "egress"
+  from_port = 53
+  to_port = 53
+  protocol = "udp"
+  source_security_group_id = module.dns.security_group_id
+  description = "DNS queries to local DNS servers"
+}
+
 ###################
 # MHS inbound security group
 ###################
@@ -163,7 +183,7 @@ resource "aws_security_group_rule" "mhs_route_security_group_cloudwatch_egress_r
 resource "aws_security_group" "mhs_inbound_security_group" {
   name = "MHS Inbound Security Group"
   description = "The security group used to control traffic for the MHS Inbound component."
-  vpc_id = aws_vpc.mhs_vpc.id
+  vpc_id = local.mhs_vpc_id
 
   tags = {
     Name = "${var.environment_id}-mhs-inbound-sg"
@@ -180,7 +200,7 @@ resource "aws_security_group_rule" "mhs_inbound_security_group_ingress_rule" {
   protocol = "tcp"
   # We're allowing inbound requests from the private subnets as MHS inbound load balancer
   # can't have a security group for us to reference.
-  cidr_blocks = aws_subnet.mhs_subnet.*.cidr_block
+  cidr_blocks = local.subnet_cidrs
   description = "Allow HTTPS inbound requests from MHS inbound load balancer"
 }
 
@@ -203,7 +223,7 @@ resource "aws_security_group_rule" "mhs_inbound_security_group_healthcheck_ingre
   from_port = 80
   to_port = 80
   protocol = "tcp"
-  cidr_blocks = aws_subnet.mhs_subnet.*.cidr_block
+  cidr_blocks = local.subnet_cidrs
   description = "Allow an HTTP connection from the inbound NLB to the inbound service. For LB healthchecks."
 }
 
@@ -243,6 +263,17 @@ resource "aws_security_group_rule" "mhs_inbound_security_group_cloudwatch_egress
   description = "HTTPS connections to Cloudwatch endpoint"
 }
 
+# Egress rule to allow requests to local DNS
+resource "aws_security_group_rule" "mhs_inbound_security_group_dns_udp_egress_rule" {
+  security_group_id = aws_security_group.mhs_inbound_security_group.id
+  type = "egress"
+  from_port = 53
+  to_port = 53
+  protocol = "udp"
+  source_security_group_id = module.dns.security_group_id
+  description = "DNS queries to local DNS servers"
+}
+
 ###################
 # VPC endpoint security groups
 ###################
@@ -251,7 +282,7 @@ resource "aws_security_group_rule" "mhs_inbound_security_group_cloudwatch_egress
 resource "aws_security_group" "ecr_security_group" {
   name = "ECR Endpoint Security Group"
   description = "The security group used to control traffic for the ECR VPC endpoint."
-  vpc_id = aws_vpc.mhs_vpc.id
+  vpc_id = local.mhs_vpc_id
 
   ingress {
     from_port = 443
@@ -271,8 +302,17 @@ resource "aws_security_group" "ecr_security_group" {
     to_port = 443
     protocol = "tcp"
     # Allow requests from GoCD agent
-    cidr_blocks = [ var.vpn_subnet ]
+    cidr_blocks = [ local.public_subnet_cidr ]
     description = "Allow inbound HTTPS requests from GoCD agent"
+  }
+
+  ingress {
+    from_port = 443
+    to_port = 443
+    protocol = "tcp"
+    # Allow requests from DNS server instances
+    security_groups = [ module.dns.security_group_id ]
+    description = "Allow inbound HTTPS requests from DNS servers to pull docker images"
   }
 
   tags = {
@@ -285,7 +325,7 @@ resource "aws_security_group" "ecr_security_group" {
 resource "aws_security_group" "cloudwatch_security_group" {
   name = "Cloudwatch Endpoint Security Group"
   description = "The security group used to control traffic for the Cloudwatch VPC endpoint."
-  vpc_id = aws_vpc.mhs_vpc.id
+  vpc_id = local.mhs_vpc_id
 
   ingress {
     from_port = 443
@@ -314,7 +354,7 @@ resource "aws_security_group" "cloudwatch_security_group" {
 resource "aws_security_group" "sds_cache_security_group" {
   name = "SDS Cache Security Group"
   description = "The security group used to control traffic for the SDS cache endpoint."
-  vpc_id = aws_vpc.mhs_vpc.id
+  vpc_id = local.mhs_vpc_id
 
   ingress {
     from_port = 6379
@@ -345,7 +385,7 @@ resource "aws_security_group" "sds_cache_security_group" {
 resource "aws_security_group" "alb_outbound_security_group" {
   name = "Outbound ALB Security Group"
   description = "The security group used to control traffic for the outbound MHS Application Load Balancer."
-  vpc_id = aws_vpc.mhs_vpc.id
+  vpc_id = local.mhs_vpc_id
 
   # Allow inbound traffic from the supplier VPC. We don't make any
   # assumptions here about the internal structure of the supplier VPC,
@@ -395,7 +435,7 @@ resource "aws_security_group" "alb_outbound_security_group" {
 resource "aws_security_group" "alb_route_security_group" {
   name = "Route ALB Security Group"
   description = "The security group used to control traffic for the MHS routing component Application Load Balancer."
-  vpc_id = aws_vpc.mhs_vpc.id
+  vpc_id = local.mhs_vpc_id
 
   # Allow inbound traffic from MHS outbound
   ingress {
